@@ -1,4 +1,4 @@
-# Day 01 — CSV Autopilot
+# CSV Autopilot
 
 > Drop a CSV, get an instant deep-dive EDA report.
 
@@ -18,7 +18,7 @@ Upload any CSV file and CSV Autopilot will automatically:
 ## Quick Start
 
 ```bash
-cd day01-csv-autopilot
+cd csv-autopilot
 pip install -r requirements.txt
 streamlit run app.py
 ```
@@ -28,7 +28,7 @@ Then open the URL Streamlit prints (usually `http://localhost:8501`), upload a C
 ## Project Structure
 
 ```
-day01-csv-autopilot/
+csv-autopilot/
 ├── app.py              # Streamlit UI — tabs, layout, interactivity
 ├── analyzer.py         # Core analysis engine — type inference, profiling, correlations, outliers, missing patterns
 ├── visualizations.py   # Plotly chart builders

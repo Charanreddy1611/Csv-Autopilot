@@ -1,5 +1,5 @@
 """
-CSV Autopilot — Day 01 of 30 Vibe-Coded Projects
+CSV Autopilot — Drop a CSV, get an instant EDA report.
 Drop a CSV → get an instant, thorough EDA report.
 """
 
@@ -88,7 +88,7 @@ def metric_card(label: str, value, color_idx: int = 0):
 
 with st.sidebar:
     st.title("🛩️ CSV Autopilot")
-    st.caption("Day 01 / 30 — Vibe-Coded Projects")
+    st.caption("30 Vibe-Coded Projects")
     st.divider()
     uploaded = st.file_uploader("Upload a CSV file", type=["csv", "tsv", "txt"])
     st.divider()
