@@ -13,6 +13,12 @@ from analyzer import (
     FullReport,
     detect_outliers_iqr,
     detect_outliers_zscore,
+    IMPUTATION_STRATEGIES,
+    impute_column,
+    impute_multiple,
+    suggest_strategy,
+    imputation_impact_stats,
+    infer_semantic_type,
 )
 from visualizations import (
     plot_histogram,
@@ -26,6 +32,9 @@ from visualizations import (
     plot_missing_bar,
     plot_missing_co_occurrence,
     plot_row_completeness,
+    plot_before_after_histogram,
+    plot_before_after_bar,
+    plot_imputation_summary,
 )
 
 # ── Page Config ─────────────────────────────────────────────────────────────
@@ -159,6 +168,7 @@ tabs = st.tabs([
     "🔗 Correlations",
     "🚨 Outliers",
     "❓ Missing Values",
+    "🔧 Impute & Clean",
     "📈 Column Deep-Dive",
 ])
 
@@ -313,9 +323,232 @@ with tabs[5]:
         st.markdown("**Missingness co-occurrence** — high values mean columns tend to be missing together:")
         st.plotly_chart(plot_missing_co_occurrence(ma["co_occurrence"]), use_container_width=True)
 
-# ── Tab 6: Column Deep-Dive ────────────────────────────────────────────────
+# ── Tab 6: Impute & Clean ──────────────────────────────────────────────────
 
 with tabs[6]:
+    st.markdown('<div class="section-header"><h3>Impute Missing Values</h3></div>', unsafe_allow_html=True)
+
+    cols_with_missing = [
+        col for col in df.columns if df[col].isna().sum() > 0
+    ]
+
+    if not cols_with_missing:
+        st.success("No missing values found in this dataset — nothing to impute!")
+    else:
+        st.markdown(
+            f"**{len(cols_with_missing)}** column(s) have missing values. "
+            "Configure a strategy per column, preview the result, and download the cleaned CSV."
+        )
+
+        imp_mode = st.radio(
+            "Imputation mode",
+            ["Single Column", "Bulk (all missing columns)"],
+            horizontal=True,
+            key="imp_mode",
+        )
+
+        if imp_mode == "Single Column":
+            sel_col = st.selectbox(
+                "Select column to impute",
+                cols_with_missing,
+                key="imp_col",
+            )
+            n_miss = int(df[sel_col].isna().sum())
+            pct_miss = round(n_miss / len(df) * 100, 2)
+            sem_type = infer_semantic_type(df[sel_col])
+            suggested = suggest_strategy(df[sel_col], sem_type)
+
+            ic1, ic2, ic3 = st.columns(3)
+            with ic1:
+                st.metric("Missing", f"{n_miss:,} ({pct_miss}%)")
+            with ic2:
+                st.metric("Type", sem_type)
+            with ic3:
+                st.metric("Suggested Strategy", suggested)
+
+            is_numeric = pd.api.types.is_numeric_dtype(df[sel_col])
+            available = IMPUTATION_STRATEGIES.copy()
+            if not is_numeric:
+                available = [s for s in available if s not in ("Mean", "Median", "Interpolate (Linear)")]
+
+            default_idx = available.index(suggested) if suggested in available else 0
+            strategy = st.selectbox(
+                "Imputation strategy",
+                available,
+                index=default_idx,
+                key="imp_strategy",
+            )
+
+            custom_val = None
+            if strategy == "Custom Value":
+                custom_val = st.text_input("Enter fill value", key="imp_custom")
+                if is_numeric and custom_val:
+                    try:
+                        custom_val = float(custom_val)
+                    except ValueError:
+                        st.warning("Column is numeric — enter a valid number.")
+                        custom_val = None
+
+            if st.button("Apply Imputation", type="primary", key="imp_apply"):
+                imputed_df = impute_column(df, sel_col, strategy, custom_val)
+                st.session_state["imputed_df"] = imputed_df
+                st.session_state["imp_col_name"] = sel_col
+                st.session_state["imp_strategy_name"] = strategy
+
+            if "imputed_df" in st.session_state and st.session_state.get("imp_col_name") == sel_col:
+                imputed_df = st.session_state["imputed_df"]
+                strat_name = st.session_state["imp_strategy_name"]
+
+                st.markdown(f"---")
+                st.markdown(f"**Result: `{sel_col}` imputed with `{strat_name}`**")
+
+                impact = imputation_impact_stats(df[sel_col], imputed_df[sel_col])
+                ri1, ri2, ri3, ri4 = st.columns(4)
+                with ri1:
+                    st.metric("Missing Before", impact["missing_before"])
+                with ri2:
+                    st.metric("Missing After", impact["missing_after"],
+                              delta=impact["missing_after"] - impact["missing_before"])
+                with ri3:
+                    st.metric("Rows Before", impact["rows_before"])
+                with ri4:
+                    st.metric("Rows After", impact["rows_after"],
+                              delta=impact["rows_after"] - impact["rows_before"]
+                              if impact["rows_after"] != impact["rows_before"] else None)
+
+                if "mean_before" in impact:
+                    si1, si2 = st.columns(2)
+                    with si1:
+                        st.metric("Mean Before", impact["mean_before"])
+                        st.metric("Std Before", impact["std_before"])
+                    with si2:
+                        st.metric("Mean After", impact["mean_after"])
+                        st.metric("Std After", impact["std_after"])
+
+                st.markdown("**Distribution Comparison**")
+                if is_numeric:
+                    st.plotly_chart(
+                        plot_before_after_histogram(df[sel_col], imputed_df[sel_col], sel_col),
+                        use_container_width=True,
+                    )
+                else:
+                    st.plotly_chart(
+                        plot_before_after_bar(df[sel_col], imputed_df[sel_col], sel_col),
+                        use_container_width=True,
+                    )
+
+                csv_bytes = imputed_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download Imputed CSV",
+                    data=csv_bytes,
+                    file_name=f"imputed_{sel_col}.csv",
+                    mime="text/csv",
+                    type="primary",
+                )
+
+        else:  # Bulk mode
+            st.markdown("**Configure strategy per column:**")
+
+            bulk_strategies = {}
+            bulk_custom_vals = {}
+
+            for col in cols_with_missing:
+                n_miss = int(df[col].isna().sum())
+                sem_type = infer_semantic_type(df[col])
+                suggested = suggest_strategy(df[col], sem_type)
+                is_numeric = pd.api.types.is_numeric_dtype(df[col])
+
+                available = IMPUTATION_STRATEGIES.copy()
+                if not is_numeric:
+                    available = [s for s in available if s not in ("Mean", "Median", "Interpolate (Linear)")]
+
+                with st.expander(f"**{col}** — {n_miss:,} missing ({round(n_miss / len(df) * 100, 1)}%) · {sem_type}"):
+                    default_idx = available.index(suggested) if suggested in available else 0
+                    strat = st.selectbox(
+                        "Strategy",
+                        available,
+                        index=default_idx,
+                        key=f"bulk_{col}",
+                    )
+                    bulk_strategies[col] = strat
+
+                    if strat == "Custom Value":
+                        cv = st.text_input("Fill value", key=f"bulk_cv_{col}")
+                        if is_numeric and cv:
+                            try:
+                                cv = float(cv)
+                            except ValueError:
+                                st.warning("Numeric column — enter a number.")
+                                cv = None
+                        bulk_custom_vals[col] = cv
+                    else:
+                        bulk_custom_vals[col] = None
+
+            if st.button("Apply All Imputations", type="primary", key="bulk_apply"):
+                col_strats = {
+                    col: (bulk_strategies[col], bulk_custom_vals[col])
+                    for col in cols_with_missing
+                }
+                imputed_df = impute_multiple(df, col_strats)
+                st.session_state["bulk_imputed_df"] = imputed_df
+                st.session_state["bulk_strategies"] = bulk_strategies
+
+            if "bulk_imputed_df" in st.session_state:
+                imputed_df = st.session_state["bulk_imputed_df"]
+                bulk_strats = st.session_state["bulk_strategies"]
+
+                st.markdown("---")
+                st.markdown("**Imputation Results**")
+
+                missing_before = {col: int(df[col].isna().sum()) for col in cols_with_missing}
+                missing_after = {col: int(imputed_df[col].isna().sum()) for col in cols_with_missing}
+
+                st.plotly_chart(
+                    plot_imputation_summary(missing_before, missing_after),
+                    use_container_width=True,
+                )
+
+                results_data = []
+                for col in cols_with_missing:
+                    results_data.append({
+                        "Column": col,
+                        "Strategy": bulk_strats.get(col, "—"),
+                        "Missing Before": missing_before[col],
+                        "Missing After": missing_after.get(col, 0),
+                        "Resolved": missing_before[col] - missing_after.get(col, 0),
+                    })
+                st.dataframe(
+                    pd.DataFrame(results_data),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                with st.expander("Compare distributions per column"):
+                    for col in cols_with_missing:
+                        if pd.api.types.is_numeric_dtype(df[col]):
+                            st.plotly_chart(
+                                plot_before_after_histogram(df[col], imputed_df[col], col),
+                                use_container_width=True,
+                            )
+                        else:
+                            st.plotly_chart(
+                                plot_before_after_bar(df[col], imputed_df[col], col),
+                                use_container_width=True,
+                            )
+
+                csv_bytes = imputed_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download Fully Imputed CSV",
+                    data=csv_bytes,
+                    file_name="imputed_full.csv",
+                    mime="text/csv",
+                    type="primary",
+                    key="bulk_download",
+                )
+
+# ── Tab 7: Column Deep-Dive ────────────────────────────────────────────────
+
+with tabs[7]:
     st.markdown('<div class="section-header"><h3>Column Deep-Dive</h3></div>', unsafe_allow_html=True)
     all_cols = df.columns.tolist()
     picked = st.selectbox("Choose a column", all_cols, key="deep_dive")

@@ -209,3 +209,78 @@ def plot_row_completeness(dist: dict) -> go.Figure:
     )
     fig.update_layout(height=400)
     return fig
+
+
+# ── Imputation Before / After ───────────────────────────────────────────────
+
+def plot_before_after_histogram(
+    original: pd.Series,
+    imputed: pd.Series,
+    col_name: str,
+) -> go.Figure:
+    """Overlaid histograms comparing a column before and after imputation."""
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=original.dropna(), name="Before (non-null)",
+        marker_color=PALETTE[0], opacity=0.6, nbinsx=50,
+    ))
+    fig.add_trace(go.Histogram(
+        x=imputed, name="After Imputation",
+        marker_color=PALETTE[3], opacity=0.6, nbinsx=50,
+    ))
+    fig.update_layout(
+        barmode="overlay",
+        title=f"Before vs After — {col_name}",
+        template="plotly_white", height=420,
+        xaxis_title=col_name, yaxis_title="Count",
+    )
+    return fig
+
+
+def plot_before_after_bar(
+    original: pd.Series,
+    imputed: pd.Series,
+    col_name: str,
+    top_n: int = 15,
+) -> go.Figure:
+    """Side-by-side bar chart for categorical columns before/after imputation."""
+    vc_before = original.dropna().value_counts().head(top_n)
+    vc_after = imputed.value_counts().head(top_n)
+    all_cats = list(dict.fromkeys(list(vc_before.index) + list(vc_after.index)))
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[str(c) for c in all_cats],
+        y=[vc_before.get(c, 0) for c in all_cats],
+        name="Before", marker_color=PALETTE[0],
+    ))
+    fig.add_trace(go.Bar(
+        x=[str(c) for c in all_cats],
+        y=[vc_after.get(c, 0) for c in all_cats],
+        name="After", marker_color=PALETTE[3],
+    ))
+    fig.update_layout(
+        barmode="group",
+        title=f"Before vs After — {col_name}",
+        template="plotly_white", height=420,
+        xaxis_title=col_name, yaxis_title="Count",
+    )
+    return fig
+
+
+def plot_imputation_summary(missing_before: dict, missing_after: dict) -> go.Figure:
+    """Bar chart showing missing count per column before vs after imputation."""
+    cols = list(missing_before.keys())
+    before_vals = [missing_before[c] for c in cols]
+    after_vals = [missing_after.get(c, 0) for c in cols]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=cols, y=before_vals, name="Before", marker_color="#e45756"))
+    fig.add_trace(go.Bar(x=cols, y=after_vals, name="After", marker_color="#43e97b"))
+    fig.update_layout(
+        barmode="group",
+        title="Missing Values: Before vs After Imputation",
+        yaxis_title="Missing Count",
+        template="plotly_white", height=420,
+    )
+    return fig

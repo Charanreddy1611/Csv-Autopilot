@@ -272,6 +272,104 @@ def missing_value_analysis(df: pd.DataFrame) -> dict:
     }
 
 
+# ── Missing Value Imputation ────────────────────────────────────────────────
+
+IMPUTATION_STRATEGIES = [
+    "Zero",
+    "Custom Value",
+    "Mean",
+    "Median",
+    "Mode",
+    "Forward Fill",
+    "Backward Fill",
+    "Interpolate (Linear)",
+    "Drop Rows",
+]
+
+
+def impute_column(
+    df: pd.DataFrame,
+    column: str,
+    strategy: str,
+    custom_value: Any = None,
+) -> pd.DataFrame:
+    """Apply a single imputation strategy to one column. Returns a new DataFrame."""
+    result = df.copy()
+    s = result[column]
+
+    if strategy == "Zero":
+        result[column] = s.fillna(0)
+    elif strategy == "Custom Value":
+        result[column] = s.fillna(custom_value)
+    elif strategy == "Mean":
+        result[column] = s.fillna(s.mean())
+    elif strategy == "Median":
+        result[column] = s.fillna(s.median())
+    elif strategy == "Mode":
+        mode_val = s.mode()
+        result[column] = s.fillna(mode_val.iloc[0] if not mode_val.empty else s)
+    elif strategy == "Forward Fill":
+        result[column] = s.ffill()
+    elif strategy == "Backward Fill":
+        result[column] = s.bfill()
+    elif strategy == "Interpolate (Linear)":
+        if pd.api.types.is_numeric_dtype(s):
+            result[column] = s.interpolate(method="linear")
+        else:
+            result[column] = s.ffill()
+    elif strategy == "Drop Rows":
+        result = result.dropna(subset=[column]).reset_index(drop=True)
+
+    return result
+
+
+def impute_multiple(
+    df: pd.DataFrame,
+    column_strategies: dict[str, tuple[str, Any]],
+) -> pd.DataFrame:
+    """Apply per-column imputation strategies.
+
+    column_strategies: {column_name: (strategy_name, custom_value_or_None)}
+    """
+    result = df.copy()
+    for col, (strategy, custom_val) in column_strategies.items():
+        result = impute_column(result, col, strategy, custom_val)
+    return result
+
+
+def suggest_strategy(series: pd.Series, sem_type: str) -> str:
+    """Suggest a reasonable default imputation strategy based on column type."""
+    if sem_type in ("integer", "float"):
+        skew = abs(series.dropna().skew()) if len(series.dropna()) > 2 else 0
+        return "Median" if skew > 1 else "Mean"
+    if sem_type in ("categorical", "boolean"):
+        return "Mode"
+    if sem_type == "datetime":
+        return "Forward Fill"
+    return "Mode"
+
+
+def imputation_impact_stats(
+    original: pd.Series, imputed: pd.Series,
+) -> dict[str, Any]:
+    """Compare original vs imputed column to quantify the impact."""
+    result = {
+        "missing_before": int(original.isna().sum()),
+        "missing_after": int(imputed.isna().sum()),
+        "rows_before": len(original),
+        "rows_after": len(imputed),
+    }
+    if pd.api.types.is_numeric_dtype(original):
+        orig_clean = original.dropna()
+        result["mean_before"] = round(float(orig_clean.mean()), 4) if len(orig_clean) else None
+        result["mean_after"] = round(float(imputed.mean()), 4)
+        result["std_before"] = round(float(orig_clean.std()), 4) if len(orig_clean) else None
+        result["std_after"] = round(float(imputed.std()), 4)
+        result["median_before"] = round(float(orig_clean.median()), 4) if len(orig_clean) else None
+        result["median_after"] = round(float(imputed.median()), 4)
+    return result
+
+
 # ── Full Analysis Orchestrator ─────────────────────────────────────────────
 
 @dataclass
