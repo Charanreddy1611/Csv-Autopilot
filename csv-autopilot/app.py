@@ -36,6 +36,7 @@ from visualizations import (
     plot_before_after_bar,
     plot_imputation_summary,
 )
+from report_generator import generate_html_report, html_to_pdf
 
 # ── Page Config ─────────────────────────────────────────────────────────────
 
@@ -170,6 +171,7 @@ tabs = st.tabs([
     "❓ Missing Values",
     "🔧 Impute & Clean",
     "📈 Column Deep-Dive",
+    "📥 Export Report",
 ])
 
 # ── Tab 0: Data Preview ────────────────────────────────────────────────────
@@ -586,3 +588,89 @@ with tabs[7]:
                 st.plotly_chart(plot_box_strip(df[picked]), use_container_width=True)
         elif profile.semantic_type in ("categorical", "boolean"):
             st.plotly_chart(plot_categorical_bar(df[picked]), use_container_width=True)
+
+# ── Tab 8: Export Report ───────────────────────────────────────────────────
+
+with tabs[8]:
+    st.markdown('<div class="section-header"><h3>Export EDA Report</h3></div>', unsafe_allow_html=True)
+    st.markdown(
+        "Download the full analysis as a **standalone file** — all charts, tables, "
+        "and statistics included. Share it with anyone, no Python required."
+    )
+
+    file_label = uploaded.name if uploaded else "dataset"
+
+    export_format = st.radio(
+        "Export format",
+        ["HTML (Interactive Charts)", "HTML (Static Images)", "PDF"],
+        horizontal=True,
+        key="export_fmt",
+    )
+
+    include_sections = st.multiselect(
+        "Sections to include",
+        ["All (recommended)", "Overview", "Column Profiles", "Distributions",
+         "Correlations", "Outliers", "Missing Values"],
+        default=["All (recommended)"],
+        key="export_sections",
+    )
+
+    if export_format == "PDF":
+        st.info(
+            "PDF export requires **kaleido** (for chart images) and either "
+            "**pdfkit + wkhtmltopdf** or **weasyprint** installed. "
+            "If unavailable, the static HTML will be offered as a fallback."
+        )
+
+    if st.button("Generate Report", type="primary", key="gen_report"):
+        with st.spinner("Building report — rendering charts..."):
+            interactive = export_format == "HTML (Interactive Charts)"
+            html_content = generate_html_report(
+                df=df,
+                report=report,
+                filename=file_label,
+                interactive_charts=interactive,
+            )
+
+        if export_format == "PDF":
+            with st.spinner("Converting to PDF..."):
+                pdf_bytes = html_to_pdf(html_content)
+
+            if pdf_bytes:
+                st.success("PDF report generated successfully!")
+                st.download_button(
+                    "Download PDF Report",
+                    data=pdf_bytes,
+                    file_name=f"eda_report_{file_label}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    key="dl_pdf",
+                )
+            else:
+                st.warning(
+                    "PDF conversion not available — pdfkit/wkhtmltopdf or weasyprint not found. "
+                    "Falling back to HTML with static images."
+                )
+                html_bytes = html_content.encode("utf-8")
+                st.download_button(
+                    "Download HTML Report (fallback)",
+                    data=html_bytes,
+                    file_name=f"eda_report_{file_label}.html",
+                    mime="text/html",
+                    type="primary",
+                    key="dl_html_fallback",
+                )
+        else:
+            st.success("HTML report generated!")
+            html_bytes = html_content.encode("utf-8")
+            st.download_button(
+                "Download HTML Report",
+                data=html_bytes,
+                file_name=f"eda_report_{file_label}.html",
+                mime="text/html",
+                type="primary",
+                key="dl_html",
+            )
+
+        with st.expander("Preview report"):
+            st.components.v1.html(html_content, height=800, scrolling=True)

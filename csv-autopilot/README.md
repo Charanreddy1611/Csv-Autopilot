@@ -14,6 +14,8 @@ Upload any CSV file and CSV Autopilot will automatically:
 - **Compute correlations** — Pearson & Spearman heatmaps, auto-detect highly-correlated pairs (|r| >= 0.8), scatter plots with trendlines.
 - **Detect outliers** — three methods side-by-side: IQR, Z-score, and Isolation Forest (multivariate). Inspect flagged rows interactively.
 - **Analyze missing values** — per-column counts, missing-value co-occurrence matrix, row completeness distribution, nullity heatmap.
+- **Impute missing values** — 9 strategies (zero, custom, mean, median, mode, forward/backward fill, interpolation, drop). Single-column or bulk mode with before/after comparison.
+- **Export full report** — download the entire EDA as a standalone HTML (interactive or static) or PDF. Share with anyone, no Python needed.
 
 ## Quick Start
 
@@ -29,10 +31,11 @@ Then open the URL Streamlit prints (usually `http://localhost:8501`), upload a C
 
 ```
 csv-autopilot/
-├── app.py              # Streamlit UI — tabs, layout, interactivity
-├── analyzer.py         # Core analysis engine — type inference, profiling, correlations, outliers, missing patterns
-├── visualizations.py   # Plotly chart builders
-├── requirements.txt    # Python dependencies
+├── app.py               # Streamlit UI — tabs, layout, interactivity
+├── analyzer.py          # Core analysis engine — type inference, profiling, correlations, outliers, imputation
+├── visualizations.py    # Plotly chart builders
+├── report_generator.py  # HTML/PDF report export engine
+├── requirements.txt     # Python dependencies
 └── README.md
 ```
 
@@ -42,3 +45,4 @@ csv-autopilot/
 - **Pandas / NumPy / SciPy** — data analysis
 - **scikit-learn** — Isolation Forest outlier detection
 - **Plotly** — interactive visualizations
+- **Kaleido** — static chart rendering for export
